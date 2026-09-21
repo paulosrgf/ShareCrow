@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>sharecrow</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600&display=swap');
+
+        :root {
+            --bg: #0d0f14;
+            --panel: #161923;
+            --panel-border: #262b3a;
+            --feather-violet: #6b5b95;
+            --feather-teal: #3f7871;
+            --amber: #e8a33d;
+            --text: #eef0f4;
+            --text-muted: #8b90a0;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            padding: 1.75rem 2rem 2.5rem;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.75rem;
+        }
+
+        .wordmark {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .wordmark h1 {
+            font-family: 'Fraunces', serif;
+            font-style: italic;
+            font-weight: 500;
+            font-size: 1.6rem;
+            margin: 0;
+        }
+
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .status.live {
+            color: var(--amber);
+        }
+
+        .status.live .status-dot {
+            background: var(--amber);
+        }
+
+        .video-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+        }
+
+        .video-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        .panel-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .video-frame {
+            position: relative;
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            aspect-ratio: 16/9;
+            overflow: hidden;
+        }
+
+        .video-frame:fullscreen {
+            aspect-ratio: unset;
+            width: 100%;
+            height: 100%;
+            border-radius: 0;
+            border: none;
+        }
+
+        .video-frame video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+            transform: none !important;
+        }
+
+        .empty-state {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.9rem;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .empty-title {
+            font-family: 'Fraunces', serif;
+            font-size: 1.1rem;
+            margin: 0;
+        }
+
+        .empty-copy {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin: 0;
+        }
+
+        .quality-picker {
+            display: flex;
+            gap: 1.5rem;
+            margin-top: 0.4rem;
+        }
+
+        .quality-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            align-items: center;
+        }
+
+        .quality-group-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+
+        .quality-options {
+            display: flex;
+            gap: 0.4rem;
+        }
+
+        .quality-btn {
+            background: transparent;
+            border: 1px solid var(--panel-border);
+            color: var(--text-muted);
+            padding: 0.35rem 0.7rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .quality-btn.active {
+            border-color: var(--amber);
+            color: var(--amber);
+        }
+
+        .cta {
+            margin-top: 0.4rem;
+            background: var(--amber);
+            color: #201200;
+            border: none;
+            padding: 0.6rem 1.4rem;
+            border-radius: 7px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .controls-bar {
+            position: absolute;
+            left: 0.75rem;
+            right: 0.75rem;
+            bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: rgba(13, 15, 20, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 0.45rem 0.6rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .video-frame:hover .controls-bar {
+            opacity: 1;
+        }
+
+        .icon-btn {
+            background: transparent;
+            border: none;
+            color: var(--text);
+            width: 30px;
+            height: 30px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.95rem;
+            flex-shrink: 0;
+        }
+
+        .icon-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .volume-slider {
+            flex: 1;
+            accent-color: var(--amber);
+        }
+
+        .quality-badge {
+            position: absolute;
+            top: 0.6rem;
+            left: 0.6rem;
+            font-size: 0.7rem;
+            padding: 0.15rem 0.55rem;
+            border-radius: 999px;
+            background: rgba(232, 163, 61, 0.12);
+            color: var(--amber);
+            border: 1px solid rgba(232, 163, 61, 0.3);
+            display: none;
+        }
+
+        .signaling {
+            max-width: 420px;
+            margin: 2rem auto 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.8rem;
+        }
+
+        .join-row {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .code-input {
+            background: #0a0b10;
+            color: var(--text);
+            border: 1px solid var(--panel-border);
+            border-radius: 6px;
+            padding: 0.5rem 0.7rem;
+            font-size: 0.95rem;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            width: 140px;
+            text-align: center;
+        }
+
+        .ghost-btn {
+            background: transparent;
+            border: 1px solid var(--feather-teal);
+            color: var(--feather-teal);
+            padding: 0.5rem 1.1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        .code-display {
+            color: var(--amber);
+            font-size: 1.3rem;
+            letter-spacing: 0.2em;
+        }
+
+        .error-text {
+            color: #e28577;
+            font-size: 0.8rem;
+        }
+
+        /* --- Modal do Seletor de Fontes (Ecrãs / Janelas) --- */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(13, 15, 20, 0.85);
+            backdrop-filter: blur(8px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal-card {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            width: 90%;
+            max-width: 640px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            gap: 1.2rem;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .modal-title {
+            font-family: 'Fraunces', serif;
+            font-size: 1.2rem;
+            margin: 0;
+        }
+
+        .source-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 1rem;
+            overflow-y: auto;
+            max-height: 50vh;
+            padding-right: 0.3rem;
+        }
+
+        .source-item {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 0.6rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .source-item:hover {
+            border-color: var(--amber);
+            background: rgba(232, 163, 61, 0.05);
+            transform: translateY(-2px);
+        }
+
+        .source-item img {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            border-radius: 5px;
+            background: #000;
+        }
+
+        .source-item span {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            width: 100%;
+            text-align: center;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .cancel-btn {
+            background: transparent;
+            border: 1px solid #a4463a;
+            color: #e28577;
+            padding: 0.45rem 1rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        .cancel-btn:hover {
+            background: rgba(164, 70, 58, 0.15);
+        }
+    </style>
+</head>
+
+<body>
+    <header class="topbar">
+        <div class="wordmark">
+            <h1>sharecrow</h1>
+        </div>
+        <div class="status" id="statusBadge">
+            <span class="status-dot"></span>
+            <span id="statusText">em repouso</span>
+        </div>
+    </header>
+
+    <section class="video-grid">
+        <article class="video-panel">
+            <div class="panel-label">sua tela</div>
+            <div class="video-frame" id="localFrame">
+                <video id="localVideo" autoplay playsinline muted></video>
+                <div class="empty-state" id="localEmpty">
+                    <p class="empty-title">Nada no ar ainda</p>
+                    <p class="empty-copy">Escolha a qualidade e comece a transmitir.</p>
+                    <div class="quality-picker">
+                        <div class="quality-group">
+                            <span class="quality-group-label">resolução</span>
+                            <div class="quality-options" id="resolutionOptions"></div>
+                        </div>
+                        <div class="quality-group">
+                            <span class="quality-group-label">taxa de quadros</span>
+                            <div class="quality-options" id="fpsOptions"></div>
+                        </div>
+                    </div>
+                    <button class="cta" id="startBtn">Iniciar transmissão</button>
+                </div>
+                <div class="controls-bar" id="localControls" style="display:none">
+                    <button class="ghost-btn" id="stopBtn" style="margin-right:auto">Parar transmissão</button>
+                    <button class="icon-btn" id="localFullscreenBtn">⛶</button>
+                </div>
+            </div>
+        </article>
+
+        <article class="video-panel">
+            <div class="panel-label">tela remota</div>
+            <div class="video-frame" id="remoteFrame">
+                <video id="remoteVideo" autoplay playsinline></video>
+                <span class="quality-badge" id="remoteQualityBadge"></span>
+                <div class="empty-state" id="remoteEmpty">
+                    <p class="empty-title">Aguardando a outra ponta</p>
+                    <p class="empty-copy">Assim que a conexão fechar, a tela aparece aqui.</p>
+                </div>
+                <div class="controls-bar" id="remoteControls" style="display:none">
+                    <button class="icon-btn" id="remoteMuteBtn">🔊</button>
+                    <input class="volume-slider" id="remoteVolumeSlider" type="range" min="0" max="100" value="100" />
+                    <button class="icon-btn" id="remoteFullscreenBtn">⛶</button>
+                </div>
+            </div>
+        </article>
+    </section>
+
+    <section class="signaling">
+        <button class="ghost-btn" id="createRoomBtn" disabled>Criar sala</button>
+        <span class="empty-copy" id="createHint">Inicie a transmissão primeiro pra criar uma sala</span>
+
+        <div class="join-row">
+            <input class="code-input" id="codeInput" placeholder="Código da sala" maxlength="6" />
+            <button class="ghost-btn" id="joinRoomBtn">Entrar</button>
+        </div>
+
+        <p id="roomCodeDisplay" class="code-display" style="display:none"></p>
+        <p id="errorText" class="error-text"></p>
+    </section>
+
+    <!-- Modal do Seletor de Transmissão -->
+    <div class="modal-overlay" id="sourceModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2 class="modal-title">Escolha o que deseja transmitir</h2>
+            </div>
+            <div class="source-grid" id="sourceList"></div>
+            <div class="modal-actions">
+                <button class="cancel-btn" id="closeModalBtn">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+
+</html>
