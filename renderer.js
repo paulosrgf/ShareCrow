@@ -14,10 +14,12 @@ let selectedResolution = resolutions[1];
 let selectedFps = 30;
 
 let ws = null;
-let pc = null;
 let localStream = null;
 let isCreator = false;
 let statsInterval = null;
+
+// Mapeamento de conexões para suportar múltiplos viewers: { peerId: RTCPeerConnection }
+let peerConnections = {};
 
 const localVideo = document.getElementById('localVideo');
 const remoteVideo = document.getElementById('remoteVideo');
@@ -42,6 +44,8 @@ const remoteVolumeSlider = document.getElementById('remoteVolumeSlider');
 const remoteQualityBadge = document.getElementById('remoteQualityBadge');
 const localFrame = document.getElementById('localFrame');
 const remoteFrame = document.getElementById('remoteFrame');
+const roomCountBadge = document.getElementById('roomCountBadge');
+const roomCountText = document.getElementById('roomCountText');
 
 // Elementos do Modal de Seleção
 const sourceModal = document.getElementById('sourceModal');
@@ -74,6 +78,15 @@ renderQualityPicker();
 function setStatus(streaming) {
   statusText.textContent = streaming ? 'transmitindo' : 'em repouso';
   statusBadge.classList.toggle('live', streaming);
+}
+
+function updateRoomCount(count) {
+  if (count > 0) {
+    roomCountText.textContent = count;
+    roomCountBadge.style.display = 'flex';
+  } else {
+    roomCountBadge.style.display = 'none';
+  }
 }
 
 function showError(msg) {
@@ -114,16 +127,13 @@ closeModalBtn.onclick = () => {
   sourceModal.style.display = 'none';
 };
 
-// --- Iniciar Captura Nativa via Electron com Áudio do Sistema ---
 async function startCapture(sourceId) {
   sourceModal.style.display = 'none';
 
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        mandatory: {
-          chromeMediaSource: 'desktop',
-        },
+        mandatory: { chromeMediaSource: 'desktop' },
       },
       video: {
         mandatory: {
@@ -143,9 +153,6 @@ async function startCapture(sourceId) {
     createHint.style.display = 'none';
     setStatus(true);
 
-    const connection = ensurePeerConnection();
-    localStream.getTracks().forEach((track) => connection.addTrack(track, localStream));
-
     localStream.getVideoTracks()[0].onended = () => stopBroadcast(true);
   } catch (err) {
     console.error('Erro ao capturar fonte selecionada:', err);
@@ -164,15 +171,15 @@ function stopBroadcast(notifyPeer) {
   localEmpty.style.display = 'flex';
   localControls.style.display = 'none';
   setStatus(false);
+  updateRoomCount(0);
 
   if (notifyPeer && ws && ws.readyState === WebSocket.OPEN) {
     sendSignal({ type: 'relay', payload: { kind: 'stream-ended' } });
   }
 
-  if (pc) {
-    pc.close();
-    pc = null;
-  }
+  // Fecha todas as conexões ativas
+  Object.values(peerConnections).forEach(pc => pc.close());
+  peerConnections = {};
 }
 
 function resetRemoteView() {
@@ -183,34 +190,33 @@ function resetRemoteView() {
   stopStatsPolling();
 }
 
-// --- Configuração WebRTC (Apenas STUN do Google) ---
+// --- Configuração WebRTC (STUN) ---
 const rtcConfig = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' }
-  ]
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
 };
 
-function ensurePeerConnection() {
-  if (pc) return pc;
+function createPeerConnection(peerId) {
+  const pc = new RTCPeerConnection(rtcConfig);
+  peerConnections[peerId] = pc;
 
-  pc = new RTCPeerConnection(rtcConfig);
+  // Se for o criador, injeta as trilhas locais na conexão deste peer específico
+  if (isCreator && localStream) {
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+  }
 
   pc.ontrack = (event) => {
+    // Usado se você for o espectador recebendo a stream do criador
     remoteVideo.srcObject = event.streams[0];
     remoteEmpty.style.display = 'none';
     remoteControls.style.display = 'flex';
-
-    remoteVideo.play().catch((err) => {
-      console.warn('Autoplay com som bloqueado pelo navegador:', err);
-    });
-
+    remoteVideo.play().catch((err) => console.warn('Autoplay bloqueado:', err));
     startStatsPolling();
   };
 
   pc.onconnectionstatechange = () => {
-    console.log('[webrtc] estado da conexão:', pc.connectionState);
     if (['disconnected', 'failed', 'closed'].includes(pc.connectionState)) {
-      resetRemoteView();
+      delete peerConnections[peerId];
+      if (!isCreator) resetRemoteView();
     }
   };
 
@@ -230,12 +236,12 @@ function waitIceGatheringComplete(connection) {
   });
 }
 
-// --- Estatísticas de qualidade recebida ---
 function startStatsPolling() {
   stopStatsPolling();
   statsInterval = setInterval(async () => {
-    if (!pc) return;
-    const stats = await pc.getStats();
+    const activePc = Object.values(peerConnections)[0];
+    if (!activePc) return;
+    const stats = await activePc.getStats();
     stats.forEach((report) => {
       if (report.type === 'inbound-rtp' && report.kind === 'video') {
         const h = report.frameHeight;
@@ -286,19 +292,26 @@ async function handleSignalMessage(msg) {
     case 'created':
       roomCodeDisplay.textContent = msg.code;
       roomCodeDisplay.style.display = 'block';
+      updateRoomCount(1); // Só você na sala inicialmente
+      break;
+    case 'room_update':
+      // O servidor avisa quantas pessoas estão na sala
+      updateRoomCount(msg.count);
       break;
     case 'peer_joined':
-      if (isCreator) await createAndSendOffer();
+      // msg.peerId identifica o novo espectador que entrou
+      if (isCreator) {
+        await createAndSendOfferToPeer(msg.peerId);
+      }
       break;
     case 'peer_left':
-      resetRemoteView();
-      if (pc) {
-        pc.close();
-        pc = null;
+      if (peerConnections[msg.peerId]) {
+        peerConnections[msg.peerId].close();
+        delete peerConnections[msg.peerId];
       }
       break;
     case 'relay':
-      await handleRelay(msg.payload);
+      await handleRelay(msg.peerId, msg.payload);
       break;
     case 'error':
       showError(msg.message);
@@ -331,49 +344,49 @@ joinRoomBtn.onclick = async () => {
   }
 };
 
-async function createAndSendOffer() {
-  const connection = ensurePeerConnection();
-  const offer = await connection.createOffer();
-  await connection.setLocalDescription(offer);
-  await waitIceGatheringComplete(connection);
+async function createAndSendOfferToPeer(peerId) {
+  const pc = createPeerConnection(peerId);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await waitIceGatheringComplete(pc);
 
   sendSignal({
     type: 'relay',
-    payload: { sdp_type: 'offer', sdp: connection.localDescription },
+    targetPeerId: peerId,
+    payload: { sdp_type: 'offer', sdp: pc.localDescription },
   });
 }
 
-async function handleRelay(payload) {
+async function handleRelay(peerId, payload) {
   if (payload.kind === 'stream-ended') {
     resetRemoteView();
-    if (pc) {
-      pc.close();
-      pc = null;
-    }
+    Object.values(peerConnections).forEach(pc => pc.close());
+    peerConnections = {};
     return;
   }
 
   const { sdp_type, sdp } = payload;
 
   if (sdp_type === 'offer') {
-    const connection = ensurePeerConnection();
-    await connection.setRemoteDescription(sdp);
-
-    const answer = await connection.createAnswer();
-    await connection.setLocalDescription(answer);
-    await waitIceGatheringComplete(connection);
+    // Se você for o espectador, recebe a oferta do criador
+    const pc = createPeerConnection('creator');
+    await pc.setRemoteDescription(sdp);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await waitIceGatheringComplete(pc);
 
     sendSignal({
       type: 'relay',
-      payload: { sdp_type: 'answer', sdp: connection.localDescription },
+      payload: { sdp_type: 'answer', sdp: pc.localDescription },
     });
   } else if (sdp_type === 'answer') {
+    // Se você for o criador, recebe a resposta do espectador específico
+    const pc = peerConnections[peerId];
     if (pc) {
       await pc.setRemoteDescription(sdp);
     }
   }
 }
 
-// --- Tela cheia ---
 localFullscreenBtn.onclick = () => localFrame.requestFullscreen();
 remoteFullscreenBtn.onclick = () => remoteFrame.requestFullscreen();
